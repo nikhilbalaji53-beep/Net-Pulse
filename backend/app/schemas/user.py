@@ -46,8 +46,16 @@ class UserResponse(UserBase):
 
 class Token(BaseModel):
     access_token: str
+    token: Optional[str] = None
     token_type: str = "bearer"
     user: UserResponse
+
+    def __init__(self, **data):
+        if "access_token" in data and "token" not in data:
+            data["token"] = data["access_token"]
+        elif "token" in data and "access_token" not in data:
+            data["access_token"] = data["token"]
+        super().__init__(**data)
 
 
 class TokenPayload(BaseModel):

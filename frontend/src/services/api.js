@@ -1,7 +1,17 @@
 import axios from 'axios';
 
+// Dynamically determine the base API URL
+export const getBaseApiUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+    const clean = envUrl.trim().replace(/\/+$/, '');
+    return clean.endsWith('/api') ? clean : `${clean}/api`;
+  }
+  return '/api';
+};
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: getBaseApiUrl(),
   headers: {
     'Content-Type': 'application/json',
   },
@@ -9,6 +19,8 @@ const api = axios.create({
 
 // Interceptor to attach JWT token
 api.interceptors.request.use((config) => {
+  // Update baseURL dynamically in case it wasn't available at module init
+  config.baseURL = getBaseApiUrl();
   const token = localStorage.getItem('netpulse_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -21,7 +33,11 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register')) {
+      if (
+        typeof window !== 'undefined' &&
+        !window.location.pathname.includes('/login') &&
+        !window.location.pathname.includes('/register')
+      ) {
         localStorage.removeItem('netpulse_token');
         localStorage.removeItem('netpulse_user');
         window.location.href = '/login';
@@ -152,7 +168,9 @@ export const settingsApi = {
 
 export const healthApi = {
   check: async () => {
-    const res = await axios.get('/health');
+    const base = getBaseApiUrl().replace(/\/api$/, '');
+    const url = base ? `${base}/health` : '/health';
+    const res = await axios.get(url);
     return res.data;
   },
 };

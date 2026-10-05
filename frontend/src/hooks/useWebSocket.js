@@ -18,10 +18,22 @@ export function useWebSocket(onEvent) {
   }, []);
 
   const connect = useCallback(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    // Connect to /api/ws (proxied by Vite or direct in prod)
-    const wsUrl = `${protocol}//${host}/api/ws`;
+    let wsUrl;
+    const envUrl = import.meta.env.VITE_API_URL;
+
+    if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+      const clean = envUrl.trim().replace(/\/+$/, '');
+      const wsProtocol = clean.startsWith('https') ? 'wss:' : 'ws:';
+      const cleanHost = clean.replace(/^https?:\/\//, '');
+      const wsHost = cleanHost.endsWith('/api') ? cleanHost : `${cleanHost}/api`;
+      wsUrl = `${wsProtocol}//${wsHost}/ws`;
+    } else if (typeof window !== 'undefined') {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      wsUrl = `${protocol}//${host}/api/ws`;
+    } else {
+      return;
+    }
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -52,20 +64,23 @@ export function useWebSocket(onEvent) {
 
       ws.onclose = () => {
         setIsConnected(false);
-        // Auto-reconnect after 3 seconds
+        // Auto-reconnect after 4 seconds
         reconnectTimeoutRef.current = setTimeout(() => {
           connect();
-        }, 3000);
+        }, 4000);
       };
 
       ws.onerror = () => {
-        ws.close();
+        // Will trigger onclose and attempt reconnect
+        try {
+          ws.close();
+        } catch (_) {}
       };
     } catch (err) {
-      console.error('WebSocket connection error:', err);
+      console.warn('WebSocket connection error:', err);
       reconnectTimeoutRef.current = setTimeout(() => {
         connect();
-      }, 3000);
+      }, 4000);
     }
   }, []);
 
@@ -82,7 +97,11 @@ export function useWebSocket(onEvent) {
     return () => {
       clearInterval(pingInterval);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      if (wsRef.current) wsRef.current.close();
+      if (wsRef.current) {
+        try {
+          wsRef.current.close();
+        } catch (_) {}
+      }
     };
   }, [connect]);
 

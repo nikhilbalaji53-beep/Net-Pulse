@@ -25,29 +25,31 @@ logger = logging.getLogger("netpulse.main")
 
 
 async def init_db_and_seed():
-    """Initializes tables and seeds initial administrative account and default targets."""
+    """Initializes tables and seeds initial administrative accounts and default targets."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     async with AsyncSessionLocal() as session:
-        # 1. Seed initial admin user if empty
-        user_res = await session.execute(select(User))
-        admin = user_res.scalars().first()
-        if not admin:
-            admin_user = User(
-                name="System Administrator",
-                email="admin@netpulse.io",
-                password_hash=get_password_hash("admin123"),
-                role="Admin",
-                created_at=datetime.now(timezone.utc),
-                last_login=None
-            )
-            session.add(admin_user)
-            await session.commit()
-            logger.info("SEED: Created default administrator (admin@netpulse.io / admin123)")
-        elif admin.email == "admin@netpulse.local":
-            admin.email = "admin@netpulse.io"
-            await session.commit()
+        # 1. Seed initial admin users if empty (support both .io and .com aliases)
+        default_admins = [
+            ("admin@netpulse.io", "System Administrator"),
+            ("admin@netpulse.com", "System Administrator")
+        ]
+        for email, name in default_admins:
+            user_res = await session.execute(select(User).where(User.email == email))
+            admin = user_res.scalars().first()
+            if not admin:
+                admin_user = User(
+                    name=name,
+                    email=email,
+                    password_hash=get_password_hash("admin123"),
+                    role="Admin",
+                    created_at=datetime.now(timezone.utc),
+                    last_login=None
+                )
+                session.add(admin_user)
+                logger.info(f"SEED: Created administrator ({email} / admin123)")
+        await session.commit()
 
         # 2. Seed real default test endpoints if none exist (8.8.8.8, 1.1.1.1, Cloudflare HTTP)
         target_res = await session.execute(select(MonitoredTarget))
@@ -137,19 +139,29 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Middleware
+# CORS Middleware - Permissive for seamless frontend connection
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all for flexible frontend connection
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include REST APIs
-app.include_router(api_router, prefix=settings.API_V1_STR)
+# Root endpoint
+@app.get("/", tags=["Root"])
+def root():
+    return {
+        "project": settings.PROJECT_NAME,
+        "message": "NetPulse API is running",
+        "status": "online",
+        "version": settings.VERSION,
+        "docs": "/docs",
+        "health": "/health"
+    }
 
 
+# Health check endpoint
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint confirming DB and engine readiness."""
@@ -169,6 +181,11 @@ async def health_check():
     }
 
 
+# Include REST APIs
+app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+# Real-time WebSocket endpoint
 @app.websocket("/api/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """Real-time WebSocket endpoint for monitor updates and alert streams."""

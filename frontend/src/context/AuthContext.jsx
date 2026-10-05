@@ -1,59 +1,104 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authApi } from '../services/api';
+import { getStoredJSON, setStoredJSON } from '../utils/storage';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem('netpulse_user');
-    return saved ? JSON.parse(saved) : null;
+  const [user, setUser] = useState(() => getStoredJSON('netpulse_user', null));
+  const [token, setToken] = useState(() => {
+    try {
+      return localStorage.getItem('netpulse_token');
+    } catch {
+      return null;
+    }
   });
-  const [token, setToken] = useState(() => localStorage.getItem('netpulse_token'));
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function verifyUser() {
       if (token) {
         try {
           const userData = await authApi.getMe();
-          setUser(userData);
-          localStorage.setItem('netpulse_user', JSON.stringify(userData));
+          if (isMounted) {
+            setUser(userData);
+            setStoredJSON('netpulse_user', userData);
+          }
         } catch (err) {
-          console.error("Auth validation failed", err);
-          logout();
+          console.warn('Auth validation failed or server waking up:', err);
+          // If unauthorized (401), clear the invalid token
+          if (err.response?.status === 401) {
+            if (isMounted) {
+              setUser(null);
+              setToken(null);
+              try {
+                localStorage.removeItem('netpulse_token');
+                localStorage.removeItem('netpulse_user');
+              } catch (_) {}
+            }
+          }
         }
       }
-      setLoading(false);
+      if (isMounted) {
+        setLoading(false);
+      }
     }
+
     verifyUser();
+
+    return () => {
+      isMounted = false;
+    };
   }, [token]);
 
   const login = async (email, password) => {
     const data = await authApi.login(email, password);
-    setToken(data.access_token);
-    setUser(data.user);
-    localStorage.setItem('netpulse_token', data.access_token);
-    localStorage.setItem('netpulse_user', JSON.stringify(data.user));
+    const resolvedToken = data.access_token || data.token;
+    const resolvedUser = data.user;
+
+    setToken(resolvedToken);
+    setUser(resolvedUser);
+
+    try {
+      localStorage.setItem('netpulse_token', resolvedToken);
+      setStoredJSON('netpulse_user', resolvedUser);
+    } catch (e) {
+      console.warn('Could not save to localStorage', e);
+    }
+
     return data;
   };
 
   const register = async (name, email, password, role = 'Admin') => {
     const data = await authApi.register(name, email, password, role);
-    setToken(data.access_token);
-    setUser(data.user);
-    localStorage.setItem('netpulse_token', data.access_token);
-    localStorage.setItem('netpulse_user', JSON.stringify(data.user));
+    const resolvedToken = data.access_token || data.token;
+    const resolvedUser = data.user;
+
+    setToken(resolvedToken);
+    setUser(resolvedUser);
+
+    try {
+      localStorage.setItem('netpulse_token', resolvedToken);
+      setStoredJSON('netpulse_user', resolvedUser);
+    } catch (e) {
+      console.warn('Could not save to localStorage', e);
+    }
+
     return data;
   };
 
   const logout = () => {
     setToken(null);
     setUser(null);
-    localStorage.removeItem('netpulse_token');
-    localStorage.removeItem('netpulse_user');
+    try {
+      localStorage.removeItem('netpulse_token');
+      localStorage.removeItem('netpulse_user');
+    } catch (_) {}
   };
 
-  const isAdmin = user?.role === 'Admin';
+  const isAdmin = user?.role ? user.role.toLowerCase() === 'admin' : false;
 
   return (
     <AuthContext.Provider value={{ user, token, loading, login, register, logout, isAdmin }}>

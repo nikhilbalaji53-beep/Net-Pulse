@@ -20,7 +20,10 @@ export function LoginPage() {
       await login(email, password);
       navigate('/dashboard');
     } catch (err) {
-      const msg = err.response?.data?.detail || 'Invalid email or password.';
+      let msg = err.response?.data?.detail || err.message || 'Invalid email or password.';
+      if (err.message === 'Network Error' || !err.response) {
+        msg = 'Cannot connect to backend server. If using Render free tier, the backend server may take up to a minute to spin up from idle. Please try again shortly.';
+      }
       setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     } finally {
       setLoading(false);
@@ -28,15 +31,24 @@ export function LoginPage() {
   };
 
   const handleQuickDemoAdmin = async () => {
-    setEmail('admin@netpulse.io');
+    setEmail('admin@netpulse.com');
     setPassword('admin123');
     setLoading(true);
     setError('');
     try {
-      await login('admin@netpulse.io', 'admin123');
+      try {
+        await login('admin@netpulse.com', 'admin123');
+      } catch (firstErr) {
+        // Fallback to .io admin credential
+        await login('admin@netpulse.io', 'admin123');
+      }
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Demo login failed');
+      let msg = err.response?.data?.detail || err.message || 'Demo login failed';
+      if (err.message === 'Network Error' || !err.response) {
+        msg = 'Cannot reach backend server. If Render backend is spinning up from idle, please wait 30 seconds and try again.';
+      }
+      setError(typeof msg === 'string' ? msg : JSON.stringify(msg));
     } finally {
       setLoading(false);
     }
@@ -76,7 +88,7 @@ export function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@netpulse.io"
+                placeholder="admin@netpulse.com"
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </div>

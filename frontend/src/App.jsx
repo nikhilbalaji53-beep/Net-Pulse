@@ -17,8 +17,9 @@ function ProtectedRoute({ children }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-xs text-slate-500">
-        Loading session...
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-xs text-slate-400 gap-3">
+        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        <span className="font-medium tracking-wide">Connecting to NetPulse...</span>
       </div>
     );
   }
