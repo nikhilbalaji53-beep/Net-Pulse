@@ -19,7 +19,11 @@ export function useWebSocket(onEvent) {
 
   const connect = useCallback(() => {
     let wsUrl;
-    const envUrl = import.meta.env.VITE_API_URL;
+    let custom = null;
+    if (typeof window !== 'undefined') {
+      custom = localStorage.getItem('netpulse_backend_url');
+    }
+    const envUrl = custom || import.meta.env.VITE_API_URL;
 
     if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
       const clean = envUrl.trim().replace(/\/+$/, '');
@@ -71,7 +75,6 @@ export function useWebSocket(onEvent) {
       };
 
       ws.onerror = () => {
-        // Will trigger onclose and attempt reconnect
         try {
           ws.close();
         } catch (_) {}

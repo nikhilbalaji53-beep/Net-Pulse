@@ -2,12 +2,42 @@ import axios from 'axios';
 
 // Dynamically determine the base API URL
 export const getBaseApiUrl = () => {
+  // 1. Check if configured in browser localStorage
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('netpulse_backend_url');
+    if (custom && custom.trim() !== '') {
+      const clean = custom.trim().replace(/\/+$/, '');
+      return clean.endsWith('/api') ? clean : `${clean}/api`;
+    }
+  }
+
+  // 2. Check if baked into Vite build environment
   const envUrl = import.meta.env.VITE_API_URL;
   if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
     const clean = envUrl.trim().replace(/\/+$/, '');
     return clean.endsWith('/api') ? clean : `${clean}/api`;
   }
+
+  // 3. Fallback to relative /api for local dev proxy
   return '/api';
+};
+
+export const setCustomBackendUrl = (url) => {
+  if (typeof window !== 'undefined') {
+    if (!url || url.trim() === '') {
+      localStorage.removeItem('netpulse_backend_url');
+    } else {
+      const clean = url.trim().replace(/\/+$/, '');
+      localStorage.setItem('netpulse_backend_url', clean);
+    }
+  }
+};
+
+export const getCustomBackendUrl = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('netpulse_backend_url') || import.meta.env.VITE_API_URL || '';
+  }
+  return '';
 };
 
 const api = axios.create({
@@ -15,11 +45,11 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 30000,
 });
 
-// Interceptor to attach JWT token
+// Interceptor to attach JWT token and ensure baseURL is fresh
 api.interceptors.request.use((config) => {
-  // Update baseURL dynamically in case it wasn't available at module init
   config.baseURL = getBaseApiUrl();
   const token = localStorage.getItem('netpulse_token');
   if (token) {
@@ -30,7 +60,13 @@ api.interceptors.request.use((config) => {
 
 // Interceptor for 401 handling
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // If receiving HTML (e.g. from static fallback), treat as API error
+    if (typeof response.data === 'string' && response.data.includes('<!doctype html>')) {
+      return Promise.reject(new Error('Backend API endpoint returned static HTML instead of JSON. Please check backend URL connection.'));
+    }
+    return response;
+  },
   (error) => {
     if (error.response && error.response.status === 401) {
       if (
@@ -167,10 +203,12 @@ export const settingsApi = {
 };
 
 export const healthApi = {
-  check: async () => {
-    const base = getBaseApiUrl().replace(/\/api$/, '');
+  check: async (targetUrl = null) => {
+    const base = targetUrl
+      ? targetUrl.trim().replace(/\/+$/, '').replace(/\/api$/, '')
+      : getBaseApiUrl().replace(/\/api$/, '');
     const url = base ? `${base}/health` : '/health';
-    const res = await axios.get(url);
+    const res = await axios.get(url, { timeout: 10000 });
     return res.data;
   },
 };
